@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"flag"
+	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"regexp"
 
@@ -12,11 +16,24 @@ import (
 
 var (
 	rootDir = flag.String("dir", ".", "start dir")
+	outPath = flag.String("out_postfix", "_out.txt", "output result postfix")
 )
+
+type Line struct {
+	Name        string
+	Optional    bool
+	Description string
+}
+
+type Resource struct {
+	Name       string
+	Arguments  []Line
+	Attributes []Line
+}
 
 func main() {
 	iniflags.Parse()
-	log.SetLevel(log.DebugLevel)
+	// log.SetLevel(log.DebugLevel)
 	log.Debug("reading directory: ", *rootDir)
 
 	files, err := ioutil.ReadDir(*rootDir)
@@ -25,36 +42,77 @@ func main() {
 	}
 
 	for _, file := range files {
-		parseFile(filepath.Join(*rootDir, file.Name()))
+		err, res := parseResourse(filepath.Join(*rootDir, file.Name()))
+		log.Debugf("%+v", res)
+
+		if nil != err {
+			log.Error("parsing file: ", err)
+			continue
+		}
+
+		if nil == res {
+			log.Info("parsing file: skipped ", file.Name())
+			continue
+		}
+
+		jsonResult, err := json.Marshal(res)
+		if nil != err {
+			log.Error("parsing file: ", err)
+			continue
+		}
+
+		f, err := os.OpenFile(res.Name+*outPath, os.O_WRONLY|os.O_CREATE, 0755)
+
+		if err != nil {
+			log.Error("parsing file: ", err)
+			continue
+		}
+		writer := bufio.NewWriter(f)
+
+		if nil != writer {
+			writer.Write(jsonResult)
+			writer.Flush()
+		}
 	}
 
 }
 
-func parseFile(path string) {
+func parseMatchLine(words [][]byte) Line {
+	result := Line{Name: "", Optional: true, Description: ""}
+	if len(words) >= 4 {
+		result.Name = string(words[1])
+		result.Optional = string(words[2]) == "Optional"
+		result.Description = string(words[3])
+	}
+
+	return result
+}
+
+func parseResourse(path string) (error, *Resource) {
 	matched, err := regexp.MatchString(".*.markdown", path)
 	if err != nil {
 		log.Error(err)
-		return
+		return fmt.Errorf("resource parsing: ", err), nil
 	}
 
 	if !matched {
-		return
+		return nil, nil
 	}
 
 	bytes, err := ioutil.ReadFile(path)
 	if err != nil {
 		log.Error(err)
-		return
+		return fmt.Errorf("resource parsing: ", err), nil
 	}
 
 	name := filepath.Base(path)
 	re := regexp.MustCompile("[a-zA-Z_]*")
 	resourceName := re.FindString(name)
 
-	log.Debug("res name: ", resourceName)
+	result := &Resource{Name: resourceName, Arguments: nil, Attributes: nil}
 
-	argsRegex := regexp.MustCompile("The following arguments are supported:")
-	attribRegex := regexp.MustCompile("The following attributes are exported:")
+	argsRegex := regexp.MustCompile("## Argument Reference")
+	attribRegex := regexp.MustCompile("## Attributes Reference")
 
 	argsLoc := argsRegex.FindIndex(bytes)
 	argumentsStart := 0
@@ -70,14 +128,31 @@ func parseFile(path string) {
 		attributesStart = attributesLoc[1] + argumentsStart
 	}
 
-	argumentsBytes := bytes[argumentsStart:argumentsEnd]
+	var argumentsBytes []byte
+	if argumentsStart <= argumentsEnd {
+		argumentsBytes = bytes[argumentsStart:argumentsEnd]
+	} else {
+		argumentsBytes = make([]byte, 0)
+	}
+
 	attributesBytes := bytes[attributesStart:]
 
+	// http://regexr.com
 	singleLineRegex := regexp.MustCompile("\\* `([a-zA-Z_0-9]*)` -? ?(\\([a-zA-Z]*\\)|) ?([-\\(\\)A-Za-z0-9 \\.\\,\\[\\]\\:\\/`']*)")
 
 	attributesMatched := singleLineRegex.FindAllSubmatch(attributesBytes, -1)
-	log.Info(attributesMatched)
+	result.Attributes = make([]Line, len(attributesMatched))
+	for index, attributeParsed := range attributesMatched {
+		line := parseMatchLine(attributeParsed)
+		result.Attributes[index] = line
+	}
 
 	argumentsMatched := singleLineRegex.FindAllSubmatch(argumentsBytes, -1)
-	log.Info(argumentsMatched)
+	result.Arguments = make([]Line, len(argumentsMatched))
+	for index, argumentMatched := range argumentsMatched {
+		line := parseMatchLine(argumentMatched)
+		result.Arguments[index] = line
+	}
+
+	return nil, result
 }

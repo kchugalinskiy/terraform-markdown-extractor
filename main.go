@@ -16,7 +16,7 @@ import (
 
 var (
 	rootDir = flag.String("dir", ".", "start dir")
-	outPath = flag.String("out_postfix", "_out.txt", "output result postfix")
+	outPath = flag.String("out", "out.json", "output result filepath")
 )
 
 type Line struct {
@@ -41,6 +41,8 @@ func main() {
 		log.Error(err)
 	}
 
+	resources := []Resource{}
+
 	for _, file := range files {
 		err, res := parseResourse(filepath.Join(*rootDir, file.Name()))
 		log.Debugf("%+v", res)
@@ -55,26 +57,27 @@ func main() {
 			continue
 		}
 
-		jsonResult, err := json.Marshal(res)
-		if nil != err {
-			log.Error("parsing file: ", err)
-			continue
-		}
-
-		f, err := os.OpenFile(res.Name+*outPath, os.O_WRONLY|os.O_CREATE, 0755)
-
-		if err != nil {
-			log.Error("parsing file: ", err)
-			continue
-		}
-		writer := bufio.NewWriter(f)
-
-		if nil != writer {
-			writer.Write(jsonResult)
-			writer.Flush()
-		}
+		resources = append(resources, *res)
 	}
 
+	jsonResult, err := json.Marshal(resources)
+	if nil != err {
+		log.Error("convert to json: ", err)
+		return
+	}
+
+	f, err := os.OpenFile(*outPath, os.O_WRONLY|os.O_CREATE, 0755)
+
+	if err != nil {
+		log.Error("open output file: ", err)
+		return
+	}
+	writer := bufio.NewWriter(f)
+
+	if nil != writer {
+		writer.Write(jsonResult)
+		writer.Flush()
+	}
 }
 
 func parseMatchLine(words [][]byte) Line {

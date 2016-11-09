@@ -110,7 +110,7 @@ func parseResourse(path string) (error, *Resource) {
 
 	name := filepath.Base(path)
 	re := regexp.MustCompile("[a-zA-Z_]*")
-	resourceName := re.FindString(name)
+	resourceName := "aws_" + re.FindString(name)
 
 	result := &Resource{Name: resourceName, Arguments: nil, Attributes: nil}
 

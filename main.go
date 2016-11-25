@@ -92,7 +92,7 @@ func parseMatchLine(words [][]byte) Line {
 }
 
 func parseResourse(path string) (error, *Resource) {
-	matched, err := regexp.MatchString(".*.markdown", path)
+	matched, err := regexp.MatchString(".*.(markdown|html.md)", path)
 	if err != nil {
 		log.Error(err)
 		return fmt.Errorf("resource parsing: ", err), nil
